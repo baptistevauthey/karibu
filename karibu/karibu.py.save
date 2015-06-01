@@ -1,0 +1,132 @@
+from flask import Flask, jsonify, request
+import math
+from database import db_session
+from models import User, Subscription, Location, Community
+from sqlalchemy import desc, asc
+app = Flask(__name__)
+
+def row2dict(row):
+    d = {}
+    for column in row.__table__.columns:
+        d[column.name] = str(getattr(row, column.name))
+    return d
+
+@app.route('/test_users', methods=['GET'])
+def test_users():
+    users = {}
+    for user in User.query.all():
+        user = row2dict(user)
+        users[user['user_name']] = (user)
+    return jsonify(users)
+
+@app.route('/api/user/add', methods=['POST'])
+def add_user():
+    if not request.json:
+        return jsonify({'error' : "yaahhhhh if you could send me some json that'd be great"})
+    if User.query.filter(User.user_name==request.json['user_name']).count>0:
+        return jsonify({'error' : 'that homie already exists dude. keep it tubular bro'})
+    db_session.add(User(request.json['user_name']))
+    db_session.commit()
+
+@app.route('/api/user/get', methods=['POST'])
+def get_user():
+    if not request.json:
+        return jsonify({'error' : "yo where's the json man"})
+    subs = Subscription.query.filter(Subscription.user_name==request.json['user_name']).all()
+    subs_dict=({})
+    for sub in subs:
+        sub = row2dict(sub)
+        subs_dict[sub['id']]=sub
+    return jsonify(subs_dict)
+
+@app.route('/api/user/subscribe/', methods=['POST'])
+def subscribe():
+    if not request.json:
+        return jsonify({'error':'JSON motherfucker, do you speak it!'})
+    if (Subscription.query.filter(Subscription.user_name==request.json['user_name'])
+       .filter(Subscription.community==request.json['community']).count()>0):
+        return jsonify({'error':"You can't subscribe twice to the same place"})
+    sub = Subscription(user_name=request.json['user_name'], community=request.json['community'])
+    db_session.add(sub)
+    db_session.commit()
+    return jsonify({'SUCCESS':'you JUST SUBSCRIBED TO SOMETHING'})
+
+@app.route('/api/location/add', methods=['POST'])
+def add_location():
+    print request.json
+    if not request.json:
+        return jsonify({'error' : "yo where's the json man"})
+    lat = float(request.json['lat'])
+    long = float(request.json['long'])
+    community = str(request.json['community'])
+    if Community.query.filter(Community.name==community).count()==0:
+        return jsonify({'error':'community does not exist'})
+    name = str(request.json['name'])
+    description = str(request.json['description'])
+    location = Location(lat=lat, long=long, community=community, name=name, description=description)
+    db_session.add(location)
+    db_session.commit()
+    print "added %s to the database" % (name)    
+    return jsonify({'response':'thank you come again'})
+
+@app.route('/api/location/remove', methods=['POST'])
+def remove_location():
+    pass
+
+@app.route('/api/location/find', methods=['POST'])
+def find_locations():
+    if not request.json:
+        return jsonify({'error' : "yo where's the json man"})
+    locations = query_locations(lat_user=request.json['lat'], long_user=request.json['long'], communities=[community for community in request.json['communities']])
+    return jsonify(locations)
+
+@app.route('/api/community/add', methods = ['POST'])
+def add_community():
+    print request.json
+    if not request.json:
+        return jsonify({'error' : "yo where's the json man"})
+    print "i have recieived json"
+    if Community.query.filter(Community.name==request.json['name']).count() >0:
+        return jsonify({'error' : "cant make the same community twice man"})
+    print "it has been added"
+    community = Community(name=request.json['name'])
+    db_session.add(community)
+    db_session.commit()
+    return jsonify({'community' : 'submitted'})
+
+@app.route('/api/community/list', methods = ['POST','GET'])
+def find_community():
+    community_dict= ({})
+    for community in list(Community.query.all()):
+        community = row2dict(community)
+        community_dict[community['name']]=community
+    return jsonify(community_dict)
+
+@app.route('/api/location/upvote
+
+def query_locations(lat_user, long_user, communities):
+    goodlocations = []
+    for community in communities:
+        sql_query="SELECT * FROM locations HAVING locations.community='%s' AND (SQRT(POWER(%f-locations.lat,2)+POWER(%f-locations.long,2)))<='0.07'" % (community, lat_user, long_user) 
+        locations = db_session.execute(sql_query)
+        num_locations_found = 0;
+        for location in locations:
+            location = dict(zip(location.keys(), location))
+            goodlocations.append(location)
+            num_locations_found+=1
+            if num_locations_found == 1000:
+                break
+    goodlocations_dict = ({})
+    for location in goodlocations:
+        goodlocations_dict[location['id']]=location
+    return goodlocations_dict
+
+
+if __name__ == '__main__':
+    app.debug = True
+    app.run(host='0.0.0.0', port=80)
+
+
+@app.teardown_appcontext
+def shutdown_session(exception=None):
+    db_session.remove()
